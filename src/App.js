@@ -1,88 +1,160 @@
-import React, { useState, useEffect } from 'react';
-import io from 'socket.io-client';
+import Button from "@material-ui/core/Button"
+import IconButton from "@material-ui/core/IconButton"
+import TextField from "@material-ui/core/TextField"
+import AssignmentIcon from "@material-ui/icons/Assignment"
+import PhoneIcon from "@material-ui/icons/Phone"
+import React, { useEffect, useRef, useState } from "react"
+import { CopyToClipboard } from "react-copy-to-clipboard"
+import Peer from "simple-peer"
+import io from "socket.io-client"
+import "./App.css"
 
-const socket = io('http://localhost:5000');
 
-const App = () => {
-  const [localStream, setLocalStream] = useState(null);
-  const [localPeerConnection, setLocalPeerConnection] = useState(null);
+const socket = io.connect('https://ehamback.priteshmaharana.com')
+function App() {
+	const [ me, setMe ] = useState("")
+	const [ stream, setStream ] = useState()
+	const [ receivingCall, setReceivingCall ] = useState(false)
+	const [ caller, setCaller ] = useState("")
+	const [ callerSignal, setCallerSignal ] = useState()
+	const [ callAccepted, setCallAccepted ] = useState(false)
+	const [ idToCall, setIdToCall ] = useState("")
+	const [ callEnded, setCallEnded] = useState(false)
+	const [ name, setName ] = useState("")
+	const myVideo = useRef()
+	const userVideo = useRef()
+	const connectionRef= useRef()
 
-  useEffect(() => {
-    
-    socket.on('offer', offer => {
-      socket.emit('answer', offer);
-    });
+	useEffect(() => {
+		navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+			setStream(stream)
+				myVideo.current.srcObject = stream
+		})
 
-    socket.on('iceCandidate', candidate => {
-      if (localPeerConnection) {
-        localPeerConnection.addIceCandidate(candidate);
-      }
-    });
-    return () => {
-      if (socket.readyState === 1) { // <-- This is important
-        socket.disconnect();
-        socket.close();
-      }
-  };
-  }, [localPeerConnection]);
+	socket.on("me", (id) => {
+			setMe(id)
+		})
 
-  const startCall = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+		socket.on("callUser", (data) => {
+			setReceivingCall(true)
+			setCaller(data.from)
+			setName(data.name)
+			setCallerSignal(data.signal)
+		})
+	}, [])
 
-      const audioElement = document.createElement('audio');
-      audioElement.srcObject = stream;
-      audioElement.autoplay = true;
-      document.body.appendChild(audioElement);
+	const callUser = (id) => {
+		const peer = new Peer({
+			initiator: true,
+			trickle: false,
+			stream: stream
+		})
+		peer.on("signal", (data) => {
+			socket.emit("callUser", {
+				userToCall: id,
+				signalData: data,
+				from: me,
+				name: name
+			})
+		})
+		peer.on("stream", (stream) => {
+			
+				userVideo.current.srcObject = stream
+			
+		})
+		socket.on("callAccepted", (signal) => {
+			setCallAccepted(true)
+			peer.signal(signal)
+		})
 
-      setLocalStream(stream);
+		connectionRef.current = peer
+	}
 
-      createPeerConnection()
-      console.log('localStream',localStream)
-      localStream.getTracks().forEach(track => localPeerConnection.addTrack(track, localStream));
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-    }
-  };
+	const answerCall =() =>  {
+		setCallAccepted(true)
+		const peer = new Peer({
+			initiator: false,
+			trickle: false,
+			stream: stream
+		})
+		peer.on("signal", (data) => {
+			socket.emit("answerCall", { signal: data, to: caller })
+		})
+		peer.on("stream", (stream) => {
+			userVideo.current.srcObject = stream
+		})
 
-  const createPeerConnection = () => {
-    const peerConnection = new RTCPeerConnection();
+		peer.signal(callerSignal)
+		connectionRef.current = peer
+	}
 
-    peerConnection.onicecandidate = event => {
-      console.log('event123',event)
-      if (event.candidate) {
-        socket.emit('iceCandidate', event.candidate);
-      }
-    };
+	const leaveCall = () => {
+		setCallEnded(true)
+		connectionRef.current.destroy()
+	}
 
-    peerConnection.ontrack = event => {
-      const remoteAudio = document.createElement('audio');
-      remoteAudio.srcObject = event.streams[0];
-      remoteAudio.autoplay = true;
-      document.body.appendChild(remoteAudio);
-    };
+	return (
+		<>
+			<h1 style={{ textAlign: "center", color: '#fff' }}>Zoomish</h1>
+		<div className="container">
+			<div className="video-container">
+				<div className="video">
+					{stream &&  <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}
+				</div>
+				<div className="video">
+					{callAccepted && !callEnded ?
+					<video playsInline ref={userVideo} autoPlay style={{ width: "300px"}} />:
+					null}
+				</div>
+			</div>
+			<div className="myId">
+				<TextField
+					id="filled-basic"
+					label="Name"
+					variant="filled"
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					style={{ marginBottom: "20px" }}
+				/>
+				<CopyToClipboard text={me} style={{ marginBottom: "2rem" }}>
+					<Button variant="contained" color="primary" startIcon={<AssignmentIcon fontSize="large" />}>
+						Copy ID
+					</Button>
+				</CopyToClipboard>
 
-    setLocalPeerConnection(peerConnection);
-  };
+				<TextField
+					id="filled-basic"
+					label="ID to call"
+					variant="filled"
+					value={idToCall}
+					onChange={(e) => setIdToCall(e.target.value)}
+				/>
+				<div className="call-button">
+					{callAccepted && !callEnded ? (
+						<Button variant="contained" color="secondary" onClick={leaveCall}>
+							End Call
+						</Button>
+					) : (
+						<IconButton color="primary" aria-label="call" onClick={() => callUser(idToCall)}>
+							<PhoneIcon fontSize="large" />
+						</IconButton>
+					)}
+					{idToCall}
+				</div>
+			</div>
+			<div>
+				{receivingCall && !callAccepted ? (
+						<div className="caller">
+						<h1 >{name} is calling...</h1>
+						<Button variant="contained" color="primary" onClick={answerCall}>
+							Answer
+						</Button>
+					</div>
+				) : null}
+			</div>
+		</div>
+		</>
+	)
+}
 
-  const hangUpCall = () => {
-    localPeerConnection.close();
-    socket.close();
-    window.location.reload();
-  };
-
-  return (
-    
-    <div className="flex flex-col items-center justify-center h-screen border-8 border-red-50">
-    <h1 className="text-3xl mb-6 border-8 border-green-500">Voice Call App</h1>
-    <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-4 border-8 border-blue-500" onClick={startCall}>
-      Start Call
-    </button>
-    <button className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded border-8 border-violet-500" onClick={hangUpCall}>
-      Hang Up
-    </button>
-  </div>
-  );
-};
-
-export default App;
+export default App
