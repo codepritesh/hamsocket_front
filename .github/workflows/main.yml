@@ -26,11 +26,12 @@ jobs:
         username: ubuntu
         key: ${{ secrets.SSH_KEY }}
         script: |
-          cd /home/ubuntu/nodejs-ssl-server
+          cd /home/ubuntu/remote_ham/front_end
           git stash
-          git pull origin feature/github-action
+          git pull origin main
           npm install
-          pm2 restart nodejs-ssl-server
+          docker stop $(docker ps -q --filter ancestor=qzkraft_frontend_name:qzkraft_frontend_tag )docker system prune -a -f
+          
               
     - name: Remove Github Actions IP from security group
       run: |
