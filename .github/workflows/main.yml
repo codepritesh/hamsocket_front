@@ -31,6 +31,9 @@ jobs:
           git pull origin main
           npm install
           docker stop $(docker ps -q --filter ancestor=qzkraft_frontend_name:qzkraft_frontend_tag )docker system prune -a -f
+          docker system prune -a -f
+          docker build -t qzkraft_frontend_name:qzkraft_frontend_tag .
+          docker run -p 3000:3000 qzkraft_frontend_name:qzkraft_frontend_tag
           
               
     - name: Remove Github Actions IP from security group
